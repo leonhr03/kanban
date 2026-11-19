@@ -28,7 +28,7 @@ export interface Project {
   name: string
   color: string
   columns: Column[]
-  /** Reihenfolge der Issues pro Spalte */
+  /** Reihenfolge der Vorgänge pro Spalte */
   order: Record<string, string[]>
   issues: Record<string, Issue>
   nextNumber: number
@@ -39,19 +39,27 @@ export interface AppState {
   activeProjectId: string | null
 }
 
-export const ISSUE_TYPES: Record<IssueType, { label: string; color: string; icon: string }> = {
-  story: { label: 'Story', color: '#16a34a', icon: '▮' },
-  task: { label: 'Aufgabe', color: '#2563eb', icon: '✓' },
-  bug: { label: 'Bug', color: '#dc2626', icon: '●' },
-  epic: { label: 'Epic', color: '#7c3aed', icon: '⚡' },
+export const ISSUE_TYPES: Record<IssueType, { label: string; color: string }> = {
+  story: { label: 'Story', color: '#22c55e' },
+  task: { label: 'Aufgabe', color: '#3b82f6' },
+  bug: { label: 'Bug', color: '#ef4444' },
+  epic: { label: 'Epic', color: '#a855f7' },
 }
 
-export const PRIORITIES: Record<Priority, { label: string; color: string; icon: string }> = {
-  highest: { label: 'Höchste', color: '#dc2626', icon: '⇈' },
-  high: { label: 'Hoch', color: '#ea580c', icon: '↑' },
-  medium: { label: 'Mittel', color: '#ca8a04', icon: '=' },
-  low: { label: 'Niedrig', color: '#2563eb', icon: '↓' },
-  lowest: { label: 'Niedrigste', color: '#0891b2', icon: '⇊' },
+export const PRIORITIES: Record<Priority, { label: string; color: string }> = {
+  highest: { label: 'Höchste', color: '#ef4444' },
+  high: { label: 'Hoch', color: '#f97316' },
+  medium: { label: 'Mittel', color: '#eab308' },
+  low: { label: 'Niedrig', color: '#3b82f6' },
+  lowest: { label: 'Niedrigste', color: '#06b6d4' },
 }
 
-export const PROJECT_COLORS = ['#2563eb', '#7c3aed', '#db2777', '#dc2626', '#ea580c', '#16a34a', '#0891b2', '#475569']
+export const PROJECT_COLORS = ['#6366f1', '#3b82f6', '#06b6d4', '#10b981', '#eab308', '#f97316', '#f43f5e', '#a855f7']
+
+/** Punktfarbe der Spalten: erste grau, letzte grün, dazwischen blau/gelb/violett… */
+const MIDDLE_DOTS = ['#3b82f6', '#f59e0b', '#a855f7', '#06b6d4', '#ec4899']
+export function columnColor(index: number, count: number) {
+  if (index === count - 1 && count > 1) return '#22c55e'
+  if (index === 0) return '#94a3b8'
+  return MIDDLE_DOTS[(index - 1) % MIDDLE_DOTS.length]
+}

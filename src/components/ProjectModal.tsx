@@ -1,6 +1,9 @@
+import { Check, Trash2, X } from 'lucide-react'
 import { useState, type Dispatch, type FormEvent } from 'react'
+import { goToProject } from '../nav'
 import { createProject, type Action } from '../store'
 import { PROJECT_COLORS, type Project } from '../types'
+import { ProjectAvatar } from './IssueBits'
 import Modal from './Modal'
 
 const suggestKey = (name: string) =>
@@ -30,23 +33,30 @@ export default function ProjectModal({
   const [color, setColor] = useState(project?.color ?? PROJECT_COLORS[0])
 
   const finalKey = (keyTouched ? key : suggestKey(name)).toUpperCase()
-  const keyError = !/^[A-Z][A-Z0-9]{1,9}$/.test(finalKey)
-    ? '2–10 Zeichen, beginnt mit Buchstabe'
-    : existingKeys.includes(finalKey)
-      ? 'Schlüssel bereits vergeben'
-      : null
+  const keyError = !finalKey
+    ? null
+    : !/^[A-Z][A-Z0-9]{1,9}$/.test(finalKey)
+      ? '2–10 Zeichen, beginnt mit einem Buchstaben'
+      : existingKeys.includes(finalKey)
+        ? 'Dieser Schlüssel ist schon vergeben'
+        : null
+  const valid = !!name.trim() && !!finalKey && !keyError
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    if (!name.trim() || keyError) return
-    if (project) dispatch({ type: 'updateProject', id: project.id, patch: { name: name.trim(), key: finalKey, color } })
-    else dispatch({ type: 'addProject', project: createProject(name.trim(), finalKey, color) })
+    if (!valid) return
+    if (project) {
+      dispatch({ type: 'updateProject', id: project.id, patch: { name: name.trim(), key: finalKey, color } })
+    } else {
+      dispatch({ type: 'addProject', project: createProject(name.trim(), finalKey, color) })
+    }
+    goToProject(finalKey)
     onClose()
   }
 
   const remove = () => {
     if (!project) return
-    if (confirm(`Projekt „${project.name}" mit allen ${Object.keys(project.issues).length} Vorgängen löschen?`)) {
+    if (confirm(`Board „${project.name}“ mit allen ${Object.keys(project.issues).length} Vorgängen löschen?`)) {
       dispatch({ type: 'deleteProject', id: project.id })
       onClose()
     }
@@ -54,52 +64,80 @@ export default function ProjectModal({
 
   return (
     <Modal onClose={onClose}>
-      <form onSubmit={submit} className="space-y-4 p-5">
-        <h2 className="text-lg font-semibold">{project ? 'Projekt bearbeiten' : 'Neues Projekt'}</h2>
-        <div>
-          <label className="label">Name</label>
-          <input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+      <form onSubmit={submit}>
+        <div className="flex items-start gap-4 border-b border-slate-100 p-5 dark:border-night-800">
+          <ProjectAvatar project={{ key: finalKey || '?', name, color }} size={48} />
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-semibold">{project ? 'Board-Einstellungen' : 'Neues Board'}</h2>
+            <p className="truncate text-sm text-slate-500">{name.trim() || 'Gib deinem Board einen Namen'}</p>
+          </div>
+          <button type="button" className="icon-btn" onClick={onClose}>
+            <X size={18} />
+          </button>
         </div>
-        <div>
-          <label className="label">Schlüssel</label>
-          <input
-            className="input font-mono uppercase"
-            value={finalKey}
-            onChange={(e) => {
-              setKeyTouched(true)
-              setKey(e.target.value)
-            }}
-          />
-          <p className={`mt-1 text-xs ${keyError && finalKey ? 'text-red-600' : 'text-slate-500'}`}>
-            {keyError && finalKey ? keyError : `Vorgänge heißen z. B. ${finalKey || 'KEY'}-1`}
-          </p>
-        </div>
-        <div>
-          <label className="label">Farbe</label>
-          <div className="flex gap-2">
-            {PROJECT_COLORS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className={`h-7 w-7 rounded-full ring-offset-2 dark:ring-offset-slate-900 ${c === color ? 'ring-2 ring-slate-500' : ''}`}
-                style={{ background: c }}
-                onClick={() => setColor(c)}
-              />
-            ))}
+
+        <div className="space-y-5 p-5">
+          <div>
+            <label className="field-label" htmlFor="pname">
+              Name
+            </label>
+            <input
+              id="pname"
+              className="input"
+              autoFocus
+              placeholder="z. B. Website Relaunch"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="field-label" htmlFor="pkey">
+              Schlüssel
+            </label>
+            <input
+              id="pkey"
+              className="input font-mono uppercase"
+              placeholder="WEB"
+              value={finalKey}
+              onChange={(e) => {
+                setKeyTouched(true)
+                setKey(e.target.value)
+              }}
+            />
+            <p className={`mt-1.5 text-xs ${keyError ? 'text-red-600 dark:text-red-400' : 'text-slate-500'}`}>
+              {keyError ?? `Vorgänge werden ${finalKey || 'KEY'}-1, ${finalKey || 'KEY'}-2 … genannt`}
+            </p>
+          </div>
+          <div>
+            <span className="field-label">Farbe</span>
+            <div className="flex flex-wrap gap-2.5">
+              {PROJECT_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-white transition hover:scale-110"
+                  style={{ background: c, boxShadow: c === color ? `0 0 0 3px white, 0 0 0 5px ${c}` : undefined }}
+                  onClick={() => setColor(c)}
+                >
+                  {c === color && <Check size={16} strokeWidth={3} />}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 pt-2">
+
+        <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-3.5 dark:border-night-800 dark:bg-night-950/40">
           {project && (
-            <button type="button" className="btn-danger" onClick={remove}>
-              Löschen
+            <button type="button" className="btn-danger px-2.5" onClick={remove}>
+              <Trash2 size={15} /> Löschen
             </button>
           )}
           <div className="flex-1" />
           <button type="button" className="btn-ghost" onClick={onClose}>
             Abbrechen
           </button>
-          <button className="btn-primary" disabled={!name.trim() || !!keyError}>
-            {project ? 'Speichern' : 'Erstellen'}
+          <button className="btn-primary" disabled={!valid}>
+            {project ? 'Speichern' : 'Board erstellen'}
           </button>
         </div>
       </form>

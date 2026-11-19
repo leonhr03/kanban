@@ -1,46 +1,70 @@
-import { useMemo, useState, type Dispatch, type DragEvent } from 'react'
-import type { Action } from '../store'
-import { ISSUE_TYPES, type Column, type Issue, type IssueType, type Project } from '../types'
+import { Check, ChevronsUpDown, Menu, Plus, Search, Settings2, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type DragEvent } from 'react'
+import { projectStats, type Action, type ProjectAction } from '../store'
+import { ISSUE_TYPES, type Issue, type IssueType, type Project } from '../types'
+import BoardColumn, { type DropTarget } from './BoardColumn'
 import IssueModal from './IssueModal'
-import { Avatar, PriorityIcon, TypeIcon } from './IssueBits'
-import { ProjectAvatar } from './Sidebar'
-
-type DropTarget = { columnId: string; beforeId: string | null }
+import { Avatar, ProjectAvatar, TypeIcon } from './IssueBits'
 
 export default function Board({
   project,
+  projects,
   dispatch,
   onEditProject,
+  onNewProject,
+  onOpenMenu,
 }: {
   project: Project
+  projects: Project[]
   dispatch: Dispatch<Action>
   onEditProject: () => void
+  onNewProject: () => void
+  onOpenMenu: () => void
 }) {
   const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useState<IssueType | ''>('')
+  const [types, setTypes] = useState<IssueType[]>([])
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null)
   const [openIssueId, setOpenIssueId] = useState<string | null>(null)
   const [creatingIn, setCreatingIn] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [drop, setDrop] = useState<DropTarget | null>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  const act = (action: ProjectAction) => dispatch({ type: 'project', projectId: project.id, action })
+  const stats = projectStats(project)
 
   const assignees = useMemo(
     () => [...new Set(Object.values(project.issues).map((i) => i.assignee))].sort((a, b) => a.localeCompare(b)),
     [project.issues],
   )
 
-  const matches = (i: Issue) => {
-    const q = search.trim().toLowerCase()
-    if (q && !`${project.key}-${i.number} ${i.title} ${i.labels.join(' ')}`.toLowerCase().includes(q)) return false
-    if (typeFilter && i.type !== typeFilter) return false
-    if (assigneeFilter !== null && i.assignee !== assigneeFilter) return false
-    return true
-  }
-  const filtering = !!search.trim() || !!typeFilter || assigneeFilter !== null
+  // Tastenkürzel: "/" Suche, "c" neuer Vorgang
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement
+      if (el.closest('input, textarea, select, [contenteditable]') || e.metaKey || e.ctrlKey || openIssueId) return
+      if (e.key === '/') {
+        e.preventDefault()
+        searchRef.current?.focus()
+      } else if (e.key === 'c') {
+        e.preventDefault()
+        setCreatingIn(project.columns[0]?.id ?? null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [project.columns, openIssueId])
+
+  const q = search.trim().toLowerCase()
+  const matches = (i: Issue) =>
+    (!q || `${project.key}-${i.number} ${i.title} ${i.labels.join(' ')} ${i.assignee}`.toLowerCase().includes(q)) &&
+    (types.length === 0 || types.includes(i.type)) &&
+    (assigneeFilter === null || i.assignee === assigneeFilter)
+  const filtering = !!q || types.length > 0 || assigneeFilter !== null
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault()
-    if (dragId && drop) dispatch({ type: 'moveIssue', id: dragId, toColumnId: drop.columnId, beforeId: drop.beforeId })
+    if (dragId && drop) act({ type: 'moveIssue', id: dragId, toColumnId: drop.columnId, beforeId: drop.beforeId })
     setDragId(null)
     setDrop(null)
   }
@@ -50,79 +74,127 @@ export default function Board({
   return (
     <div className="flex h-full flex-col">
       {/* Kopfbereich */}
-      <header className="px-6 pt-5 pb-3">
-        <div className="flex items-center gap-1.5 text-sm text-slate-500">
-          <span>Projekte</span>
-          <span>/</span>
-          <button className="flex items-center gap-1.5 hover:underline" onClick={onEditProject}>
-            <ProjectAvatar project={project} size={18} />
-            {project.name}
+      <header className="border-b border-slate-200 bg-white/70 px-4 pt-4 pb-4 backdrop-blur sm:px-8 sm:pt-6 dark:border-night-800 dark:bg-night-950/70">
+        <div className="flex items-center gap-2">
+          <button className="icon-btn -ml-1.5 lg:hidden" onClick={onOpenMenu} title="Menü">
+            <Menu size={20} />
           </button>
-        </div>
-        <div className="mt-1 flex items-center gap-3">
-          <h1 className="text-2xl font-semibold">{project.key} Board</h1>
-          <div className="flex-1" />
-          <button className="btn-primary" onClick={() => setCreatingIn(project.columns[0]?.id ?? null)}>
-            + Erstellen
-          </button>
+          <ProjectSwitcher project={project} projects={projects} onNewProject={onNewProject} />
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <input
-            className="input w-56"
-            placeholder="Board durchsuchen…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <div className="flex -space-x-1.5">
-            {assignees.map((a) => (
-              <button
-                key={a || '__none'}
-                onClick={() => setAssigneeFilter(assigneeFilter === a ? null : a)}
-                className={`rounded-full ring-2 transition hover:z-10 hover:-translate-y-0.5 ${assigneeFilter === a ? 'z-10 ring-blue-500' : 'ring-white dark:ring-slate-950'}`}
-              >
-                <Avatar name={a} size={30} />
-              </button>
-            ))}
+        <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-4">
+          <div className="flex min-w-0 items-center gap-4">
+            <ProjectAvatar project={project} size={48} />
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">
+                {project.name}
+              </h1>
+              <div className="mt-0.5 flex items-center gap-2 text-sm text-slate-500">
+                <span className="font-mono text-xs">{project.key}</span>
+                <span>·</span>
+                <span>
+                  {stats.total} {stats.total === 1 ? 'Vorgang' : 'Vorgänge'}
+                </span>
+              </div>
+            </div>
           </div>
-          <select
-            className="input w-auto"
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value as IssueType | '')}
-          >
-            <option value="">Alle Typen</option>
-            {Object.entries(ISSUE_TYPES).map(([k, t]) => (
-              <option key={k} value={k}>
-                {t.label}
-              </option>
-            ))}
-          </select>
+
+          <div className="ml-auto flex items-center gap-4">
+            <div className="hidden w-44 sm:block">
+              <div className="mb-1.5 flex justify-between text-xs">
+                <span className="text-slate-500">Fortschritt</span>
+                <span className="font-semibold tabular-nums">{stats.pct}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-night-800">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-[width] duration-500"
+                  style={{ width: `${stats.pct}%` }}
+                />
+              </div>
+            </div>
+            <button className="btn-secondary" onClick={onEditProject} title="Board-Einstellungen">
+              <Settings2 size={16} />
+              <span className="hidden sm:inline">Einstellungen</span>
+            </button>
+            <button className="btn-primary" onClick={() => setCreatingIn(project.columns[0]?.id ?? null)}>
+              <Plus size={16} strokeWidth={2.5} />
+              Erstellen
+            </button>
+          </div>
+        </div>
+
+        {/* Filter */}
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <div className="relative w-full sm:w-64">
+            <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-400" />
+            <input
+              ref={searchRef}
+              className="input pr-8 pl-9"
+              placeholder="Board durchsuchen"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Escape' && (setSearch(''), e.currentTarget.blur())}
+            />
+            <kbd className="absolute top-1/2 right-2.5 -translate-y-1/2 rounded border border-slate-200 px-1.5 font-sans text-[10px] text-slate-400 dark:border-night-700">
+              /
+            </kbd>
+          </div>
+
+          {assignees.length > 0 && (
+            <div className="flex items-center -space-x-1.5">
+              {assignees.map((a) => (
+                <button
+                  key={a || '__none'}
+                  onClick={() => setAssigneeFilter(assigneeFilter === a ? null : a)}
+                  className={`rounded-full transition hover:z-10 hover:-translate-y-0.5 ${assigneeFilter === a ? 'z-10 ring-2 ring-indigo-500 ring-offset-2 ring-offset-white dark:ring-offset-night-950' : ''}`}
+                >
+                  <Avatar name={a} size={32} ring />
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-1.5">
+            {(Object.keys(ISSUE_TYPES) as IssueType[]).map((t) => {
+              const on = types.includes(t)
+              return (
+                <button
+                  key={t}
+                  onClick={() => setTypes(on ? types.filter((x) => x !== t) : [...types, t])}
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${on ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300' : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-night-700 dark:bg-night-900 dark:text-slate-300 dark:hover:border-night-600'}`}
+                >
+                  <TypeIcon type={t} size={14} />
+                  {ISSUE_TYPES[t].label}
+                  {on && <Check size={12} strokeWidth={3} />}
+                </button>
+              )
+            })}
+          </div>
+
           {filtering && (
             <button
-              className="btn-ghost"
+              className="btn-ghost px-2 py-1 text-xs"
               onClick={() => {
                 setSearch('')
-                setTypeFilter('')
+                setTypes([])
                 setAssigneeFilter(null)
               }}
             >
-              Filter zurücksetzen
+              <X size={14} /> Filter zurücksetzen
             </button>
           )}
         </div>
       </header>
 
       {/* Spalten */}
-      <div className="flex flex-1 gap-3 overflow-x-auto px-6 pb-6">
+      <div className="flex flex-1 snap-x scroll-px-4 gap-4 overflow-x-auto px-4 py-5 sm:scroll-px-8 sm:px-8">
         {project.columns.map((col, ci) => (
           <BoardColumn
             key={col.id}
             column={col}
+            index={ci}
             project={project}
             issues={(project.order[col.id] ?? []).map((id) => project.issues[id]).filter((i) => i && matches(i))}
-            isFirst={ci === 0}
-            isLast={ci === project.columns.length - 1}
-            isDone={ci === project.columns.length - 1}
             dragId={dragId}
             drop={drop}
             setDrop={setDrop}
@@ -133,291 +205,71 @@ export default function Board({
               setDrop(null)
             }}
             onOpen={setOpenIssueId}
-            dispatch={dispatch}
+            act={act}
             creating={creatingIn === col.id}
             setCreating={(v) => setCreatingIn(v ? col.id : null)}
           />
         ))}
-        <AddColumn onAdd={(name) => dispatch({ type: 'addColumn', name })} />
+        <AddColumn onAdd={(name) => act({ type: 'addColumn', name })} />
       </div>
 
       {openIssue && (
-        <IssueModal issue={openIssue} project={project} dispatch={dispatch} onClose={() => setOpenIssueId(null)} />
+        <IssueModal issue={openIssue} project={project} act={act} onClose={() => setOpenIssueId(null)} />
       )}
     </div>
   )
 }
 
-function BoardColumn({
-  column,
+/** Dropdown oben links zum schnellen Wechseln zwischen Boards */
+function ProjectSwitcher({
   project,
-  issues,
-  isFirst,
-  isLast,
-  isDone,
-  dragId,
-  drop,
-  setDrop,
-  onDrop,
-  onDragStart,
-  onDragEnd,
-  onOpen,
-  dispatch,
-  creating,
-  setCreating,
+  projects,
+  onNewProject,
 }: {
-  column: Column
   project: Project
-  issues: Issue[]
-  isFirst: boolean
-  isLast: boolean
-  isDone: boolean
-  dragId: string | null
-  drop: DropTarget | null
-  setDrop: (d: DropTarget | null) => void
-  onDrop: (e: DragEvent) => void
-  onDragStart: (id: string) => void
-  onDragEnd: () => void
-  onOpen: (id: string) => void
-  dispatch: Dispatch<Action>
-  creating: boolean
-  setCreating: (v: boolean) => void
+  projects: Project[]
+  onNewProject: () => void
 }) {
-  const [menu, setMenu] = useState(false)
-  const [renaming, setRenaming] = useState(false)
-  const isTarget = drop?.columnId === column.id
-
-  const indicator = <div className="my-0.5 h-0.5 rounded bg-blue-500" />
-
+  const [open, setOpen] = useState(false)
   return (
-    <section
-      className={`flex w-72 shrink-0 flex-col rounded-lg bg-slate-100 transition dark:bg-slate-900 ${isTarget ? 'ring-2 ring-blue-400/50' : ''}`}
-      onDragOver={(e) => {
-        e.preventDefault()
-        // Über leerem Bereich der Spalte -> ans Ende
-        if (e.target === e.currentTarget || (e.target as HTMLElement).dataset.colbody) {
-          if (!isTarget || drop?.beforeId !== null) setDrop({ columnId: column.id, beforeId: null })
-        }
-      }}
-      onDrop={onDrop}
-    >
-      <div className="relative flex items-center gap-2 px-3 pt-3 pb-2">
-        {renaming ? (
-          <input
-            className="input py-0.5 text-xs"
-            autoFocus
-            defaultValue={column.name}
-            onBlur={(e) => {
-              if (e.target.value.trim()) dispatch({ type: 'renameColumn', columnId: column.id, name: e.target.value.trim() })
-              setRenaming(false)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') e.currentTarget.blur()
-              if (e.key === 'Escape') setRenaming(false)
-            }}
-          />
-        ) : (
-          <h2
-            className="truncate text-xs font-semibold tracking-wide text-slate-500 uppercase dark:text-slate-400"
-            onDoubleClick={() => setRenaming(true)}
-          >
-            {column.name} <span className="ml-1 font-normal">{issues.length}</span>
-          </h2>
-        )}
-        {isDone && <span className="text-green-600" title="Fertig-Spalte">✓</span>}
-        <div className="flex-1" />
-        <button className="btn-ghost px-1.5 py-0" onClick={() => setMenu(!menu)}>
-          ⋯
-        </button>
-        {menu && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setMenu(false)} />
-            <div className="absolute top-9 right-2 z-20 w-44 overflow-hidden rounded-md border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-800">
-              {[
-                ['Umbenennen', () => setRenaming(true), true],
-                ['Nach links', () => dispatch({ type: 'moveColumn', columnId: column.id, dir: -1 }), !isFirst],
-                ['Nach rechts', () => dispatch({ type: 'moveColumn', columnId: column.id, dir: 1 }), !isLast],
-                [
-                  'Spalte löschen',
-                  () => {
-                    if (confirm(`Spalte „${column.name}" löschen? Vorgänge werden in die erste Spalte verschoben.`))
-                      dispatch({ type: 'deleteColumn', columnId: column.id })
-                  },
-                  project.columns.length > 1,
-                ],
-              ].map(([label, fn, enabled]) => (
-                <button
-                  key={label as string}
-                  disabled={!enabled}
-                  className="block w-full px-3 py-1.5 text-left hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-700"
-                  onClick={() => {
-                    setMenu(false)
-                    ;(fn as () => void)()
-                  }}
-                >
-                  {label as string}
-                </button>
-              ))}
+    <div className="relative">
+      <button
+        className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-sm text-slate-500 transition hover:bg-slate-900/5 hover:text-slate-800 dark:hover:bg-white/5 dark:hover:text-slate-200"
+        onClick={() => setOpen(!open)}
+      >
+        Boards
+        <span className="text-slate-300 dark:text-slate-600">/</span>
+        <span className="font-medium text-slate-700 dark:text-slate-200">{project.name}</span>
+        <ChevronsUpDown size={14} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className="menu absolute top-full left-0 z-40 mt-1 w-72">
+            <div className="px-2.5 pt-1.5 pb-1 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
+              Board wechseln
             </div>
-          </>
-        )}
-      </div>
-
-      <div data-colbody="1" className="flex min-h-16 flex-1 flex-col gap-1.5 overflow-y-auto px-2 pb-2">
-        {issues.map((issue) => (
-          <div key={issue.id}>
-            {isTarget && drop?.beforeId === issue.id && dragId !== issue.id && indicator}
-            <IssueCard
-              issue={issue}
-              project={project}
-              done={isDone}
-              dragging={dragId === issue.id}
-              onOpen={() => onOpen(issue.id)}
-              onDragStart={() => onDragStart(issue.id)}
-              onDragEnd={onDragEnd}
-              onDragOver={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                const r = e.currentTarget.getBoundingClientRect()
-                const after = e.clientY > r.top + r.height / 2
-                const idx = issues.indexOf(issue)
-                const beforeId = after ? (issues[idx + 1]?.id ?? null) : issue.id
-                if (drop?.columnId !== column.id || drop.beforeId !== beforeId) setDrop({ columnId: column.id, beforeId })
+            {projects.map((p) => (
+              <a key={p.id} href={`#/${p.key}`} className="menu-item" onClick={() => setOpen(false)}>
+                <ProjectAvatar project={p} size={22} />
+                <span className="flex-1 truncate">{p.name}</span>
+                <span className="font-mono text-[10px] text-slate-400">{p.key}</span>
+                {p.id === project.id && <Check size={14} className="text-indigo-500" />}
+              </a>
+            ))}
+            <div className="my-1 border-t border-slate-100 dark:border-night-700" />
+            <button
+              className="menu-item"
+              onClick={() => {
+                setOpen(false)
+                onNewProject()
               }}
-            />
-          </div>
-        ))}
-        {isTarget && drop?.beforeId === null && indicator}
-
-        {creating ? (
-          <QuickCreate
-            onCancel={() => setCreating(false)}
-            onCreate={(title, type) => dispatch({ type: 'addIssue', draft: { title, type, columnId: column.id } })}
-          />
-        ) : (
-          <button
-            data-colbody="1"
-            className="btn-ghost mt-0.5 justify-start text-slate-500"
-            onClick={() => setCreating(true)}
-          >
-            + Vorgang erstellen
-          </button>
-        )}
-      </div>
-    </section>
-  )
-}
-
-function IssueCard({
-  issue,
-  project,
-  done,
-  dragging,
-  onOpen,
-  onDragStart,
-  onDragEnd,
-  onDragOver,
-}: {
-  issue: Issue
-  project: Project
-  done: boolean
-  dragging: boolean
-  onOpen: () => void
-  onDragStart: () => void
-  onDragEnd: () => void
-  onDragOver: (e: DragEvent<HTMLDivElement>) => void
-}) {
-  return (
-    <div
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.effectAllowed = 'move'
-        e.dataTransfer.setData('text/plain', issue.id)
-        onDragStart()
-      }}
-      onDragEnd={onDragEnd}
-      onDragOver={onDragOver}
-      onClick={onOpen}
-      className={`cursor-pointer rounded-md border border-slate-200 bg-white p-2.5 text-sm shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 ${dragging ? 'opacity-40' : ''}`}
-    >
-      <p className={`mb-2 leading-snug ${done ? 'text-slate-500 line-through decoration-slate-400' : ''}`}>
-        {issue.title}
-      </p>
-      {issue.labels.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-1">
-          {issue.labels.map((l) => (
-            <span
-              key={l}
-              className="rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-700 uppercase dark:bg-slate-700 dark:text-slate-300"
             >
-              {l}
-            </span>
-          ))}
-        </div>
+              <Plus size={16} className="mx-[3px]" /> Neues Board
+            </button>
+          </div>
+        </>
       )}
-      <div className="flex items-center gap-2">
-        <TypeIcon type={issue.type} />
-        <span className={`text-xs font-medium text-slate-500 ${done ? 'line-through' : ''}`}>
-          {project.key}-{issue.number}
-        </span>
-        <div className="flex-1" />
-        {issue.storyPoints != null && (
-          <span className="rounded-full bg-slate-200 px-1.5 text-[11px] font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-            {issue.storyPoints}
-          </span>
-        )}
-        <PriorityIcon priority={issue.priority} />
-        <Avatar name={issue.assignee} size={22} />
-      </div>
-    </div>
-  )
-}
-
-function QuickCreate({
-  onCreate,
-  onCancel,
-}: {
-  onCreate: (title: string, type: IssueType) => void
-  onCancel: () => void
-}) {
-  const [title, setTitle] = useState('')
-  const [type, setType] = useState<IssueType>('task')
-  return (
-    <div className="rounded-md border-2 border-blue-500 bg-white p-2 dark:bg-slate-800">
-      <textarea
-        autoFocus
-        rows={2}
-        className="w-full resize-none bg-transparent text-sm outline-none"
-        placeholder="Was muss erledigt werden?"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            if (title.trim()) {
-              onCreate(title.trim(), type)
-              setTitle('')
-            }
-          }
-          if (e.key === 'Escape') onCancel()
-        }}
-        onBlur={() => !title.trim() && onCancel()}
-      />
-      <div className="flex items-center gap-2">
-        <select
-          className="rounded bg-transparent text-xs outline-none"
-          value={type}
-          onChange={(e) => setType(e.target.value as IssueType)}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          {Object.entries(ISSUE_TYPES).map(([k, t]) => (
-            <option key={k} value={k}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-        <span className="flex-1 text-right text-[11px] text-slate-400">Enter ↵</span>
-      </div>
     </div>
   )
 }
@@ -427,11 +279,11 @@ function AddColumn({ onAdd }: { onAdd: (name: string) => void }) {
   if (!open)
     return (
       <button
-        className="h-10 w-10 shrink-0 rounded-lg bg-slate-100 text-xl text-slate-500 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-dashed border-slate-300 text-slate-400 transition hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-500 dark:border-night-700 dark:hover:bg-indigo-500/10"
         title="Spalte hinzufügen"
         onClick={() => setOpen(true)}
       >
-        +
+        <Plus size={18} />
       </button>
     )
   return (
@@ -439,7 +291,7 @@ function AddColumn({ onAdd }: { onAdd: (name: string) => void }) {
       <input
         className="input"
         autoFocus
-        placeholder="Spaltenname"
+        placeholder="Name der Spalte"
         onBlur={(e) => {
           if (e.target.value.trim()) onAdd(e.target.value.trim())
           setOpen(false)
